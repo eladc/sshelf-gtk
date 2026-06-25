@@ -166,8 +166,8 @@ def cmd_unmount(args) -> None:
         print(f"[sshelf] Connection failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    import shlex
-    safe = shlex.quote(args.remote_dir)
+    from src.protocols.sshfs_mount import _shell_remote_path
+    safe = _shell_remote_path(args.remote_dir)
     transport = client.get_transport()
     try:
         chan = transport.open_session()

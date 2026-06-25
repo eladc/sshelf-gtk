@@ -84,6 +84,23 @@ def _pump(src, dst_write) -> None:
         pass
 
 
+def _shell_remote_path(path: str) -> str:
+    """Return a shell-safe string for *path* in a remote exec_command.
+
+    shlex.quote wraps paths in single quotes which prevents tilde expansion
+    (e.g. '~/dir' → literal '~' directory).  For tilde-relative paths we
+    substitute $HOME and use double quotes instead, which the remote shell
+    expands correctly.
+    """
+    if path == "~":
+        return '"$HOME"'
+    if path.startswith("~/"):
+        # Escape only the chars that are special inside double quotes
+        rest = path[2:].replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$")
+        return f'"$HOME/{rest}"'
+    return shlex.quote(path)
+
+
 class ReverseMountError(Exception):
     """Raised when a reverse mount cannot be started."""
 
@@ -160,11 +177,11 @@ class ReverseMount:
         # 2. Open a dedicated exec channel and run sshfs in slave mode on the remote.
         #    The channel's stdin/stdout become sshfs's stdin/stdout.
         #    :<local_abs> is the sshfs "host:path" — empty host means use slave stdin/stdout.
-        safe_remote = shlex.quote(self._remote_dir)
+        safe_remote = _shell_remote_path(self._remote_dir)
         safe_local  = shlex.quote(f":{self._local_dir}")
         remote_cmd  = (
             f"mkdir -p {safe_remote} && "
-            f"exec sshfs {safe_local} {safe_remote} -o slave,reconnect=no"
+            f"exec sshfs {safe_local} {safe_remote} -o slave"
         )
         try:
             self._chan = self._transport.open_session()
@@ -218,7 +235,7 @@ class ReverseMount:
 
         # Best-effort remote unmount (opens a fresh short-lived exec channel).
         try:
-            safe_remote = shlex.quote(self._remote_dir)
+            safe_remote = _shell_remote_path(self._remote_dir)
             chan = self._transport.open_session()
             chan.settimeout(10)
             chan.exec_command(

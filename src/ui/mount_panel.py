@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QMetaObject, Q_ARG, pyqtSlot
+from PyQt6.QtCore import Qt, QMetaObject, Q_ARG, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -261,6 +261,8 @@ class MountPanel(QWidget):
             m = Mount.from_dict(row)
             if m.enabled:
                 self._launch_runner(m)
+        # Refresh dots after runners have had time to settle (start() sleeps 0.5 s)
+        QTimer.singleShot(1500, self._reload)
 
     def _launch_runner(self, mount: Mount) -> None:
         if self._worker is None:
