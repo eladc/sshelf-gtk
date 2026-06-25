@@ -204,6 +204,15 @@ class PreferencesDialog(QDialog):
         )
         feat_form.addRow("Port forwarding / Tunnels (🔀):", self._feat_tunnels)
 
+        self._feat_mounts = QCheckBox()
+        self._feat_mounts.setChecked(db.get_pref("feature_mounts", "0") == "1")
+        self._feat_mounts.setToolTip(
+            "Show the ⊕ Folder Mount panel button in terminal tabs.\n"
+            "Exposes a local directory on the remote host (bidirectional).\n"
+            "Requires sshfs on the remote server: sudo apt install sshfs"
+        )
+        feat_form.addRow("Folder mount (⊕):", self._feat_mounts)
+
         layout.addLayout(feat_form)
 
         btns = QDialogButtonBox(
@@ -250,6 +259,7 @@ class PreferencesDialog(QDialog):
         self.db.set_pref("feature_snippets",  "1" if self._feat_snippets.isChecked() else "0")
         self.db.set_pref("feature_sftp",      "1" if self._feat_sftp.isChecked() else "0")
         self.db.set_pref("feature_tunnels",   "1" if self._feat_tunnels.isChecked() else "0")
+        self.db.set_pref("feature_mounts",    "1" if self._feat_mounts.isChecked() else "0")
 
         # Ask the main window to refresh terminal colours and icons
         win = self.parent()

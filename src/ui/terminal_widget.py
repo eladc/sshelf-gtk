@@ -451,6 +451,15 @@ class TerminalWidget(QWidget):
         hbar.addWidget(self._btn_tunnels)
         # connection wired below after side panel tabs are counted
 
+        # Mount panel toggle (⊕ — expose local dir on remote)
+        self._btn_mounts = QPushButton("" if _LINUX else "⊕")
+        self._btn_mounts.setToolTip("Folder mounts (local dir → remote)")
+        self._btn_mounts.setFixedSize(26, 26)
+        self._btn_mounts.setStyleSheet(self._hdr_btn_style())
+        _apply_icon(self._btn_mounts, "folder-remote", "⊕")
+        hbar.addWidget(self._btn_mounts)
+        # connection wired below after side panel tabs are counted
+
         # Split pane (⊞ is BMP U+229E — renders fine in standard Linux fonts)
         btn_split = QPushButton("⊞")
         btn_split.setToolTip("Split pane — open a new terminal alongside this one")
@@ -544,6 +553,7 @@ class TerminalWidget(QWidget):
         _feat_snippets = (not _db) or _db.get_pref("feature_snippets", "1") == "1"
         _feat_sftp     = (not _db) or _db.get_pref("feature_sftp",     "1") == "1"
         _feat_tunnels  = (not _db) or _db.get_pref("feature_tunnels",  "0") == "1"
+        _feat_mounts   = (not _db) or _db.get_pref("feature_mounts",   "0") == "1"
 
         _tab_idx = 0  # tracks actual index as we conditionally add tabs
 
@@ -619,6 +629,30 @@ class TerminalWidget(QWidget):
         else:
             self._tunnel_panel = None
             self._btn_tunnels.hide()
+
+        # ── Mounts tab ────────────────────────────────────────────────────────
+        if _feat_mounts:
+            from src.ui.mount_panel import MountPanel
+            self._mount_panel = MountPanel(
+                db=self._db,
+                conn_id=self._conn.id,
+                parent=self,
+            )
+            if _LINUX:
+                self._side_tabs.addTab(
+                    self._mount_panel,
+                    QIcon.fromTheme("folder-remote"),
+                    "Mounts",
+                )
+            else:
+                self._side_tabs.addTab(self._mount_panel, "⊕ Mounts")
+            _mounts_idx = _tab_idx
+            self._btn_mounts.clicked.connect(
+                lambda checked=False, i=_mounts_idx: self._show_side_tab(i)
+            )
+        else:
+            self._mount_panel = None
+            self._btn_mounts.hide()
 
         self._content_splitter.addWidget(self._side_panel)
         self._side_panel.hide()
@@ -897,6 +931,9 @@ class TerminalWidget(QWidget):
         # Start port-forwarding tunnels
         if self._tunnel_panel:
             self._tunnel_panel.set_worker(self._worker)
+        # Start reverse mounts
+        if self._mount_panel:
+            self._mount_panel.set_worker(self._worker)
 
     def _setup_sftp(self) -> None:
         if not self._worker or not self._sftp_panel:
@@ -951,6 +988,8 @@ class TerminalWidget(QWidget):
             self._stats_timer = None
         if self._tunnel_panel:
             self._tunnel_panel.set_worker(None)
+        if self._mount_panel:
+            self._mount_panel.set_worker(None)
         if self._closing:
             # User clicked Disconnect while thread was running — close tab now.
             self._do_close()
@@ -1023,6 +1062,8 @@ class TerminalWidget(QWidget):
             self._log_file = None
         if self._tunnel_panel:
             self._tunnel_panel.set_worker(None)
+        if self._mount_panel:
+            self._mount_panel.set_worker(None)
         if self._worker:
             self._worker.disconnect()
         if self._thread:

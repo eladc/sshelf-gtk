@@ -65,6 +65,15 @@ CREATE TABLE IF NOT EXISTS tunnels (
     remote_port  INTEGER NOT NULL DEFAULT 0,
     enabled      INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS mounts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    conn_id      INTEGER NOT NULL,
+    label        TEXT    NOT NULL DEFAULT '',
+    local_dir    TEXT    NOT NULL DEFAULT '',
+    remote_dir   TEXT    NOT NULL DEFAULT '',
+    enabled      INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -282,6 +291,44 @@ class Database:
 
     def delete_tunnel(self, tunnel_id: int) -> None:
         self._conn.execute("DELETE FROM tunnels WHERE id = ?", (tunnel_id,))
+        self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # Mounts CRUD
+    # ------------------------------------------------------------------
+
+    def all_mounts(self, conn_id: int) -> list[dict]:
+        """Return all mount records for a connection, ordered by id."""
+        rows = self._conn.execute(
+            "SELECT * FROM mounts WHERE conn_id = ? ORDER BY id", (conn_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_mount(self, mount) -> object:
+        """Insert or update a Mount dataclass. Returns the mount with id set."""
+        d = mount.to_dict()
+        if mount.id is None:
+            cur = self._conn.execute(
+                """INSERT INTO mounts
+                   (conn_id, label, local_dir, remote_dir, enabled)
+                   VALUES
+                   (:conn_id, :label, :local_dir, :remote_dir, :enabled)""",
+                d,
+            )
+            mount.id = cur.lastrowid
+        else:
+            self._conn.execute(
+                """UPDATE mounts SET
+                   conn_id=:conn_id, label=:label,
+                   local_dir=:local_dir, remote_dir=:remote_dir, enabled=:enabled
+                   WHERE id=:id""",
+                d,
+            )
+        self._conn.commit()
+        return mount
+
+    def delete_mount(self, mount_id: int) -> None:
+        self._conn.execute("DELETE FROM mounts WHERE id = ?", (mount_id,))
         self._conn.commit()
 
     def close(self) -> None:
