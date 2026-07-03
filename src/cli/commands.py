@@ -276,3 +276,50 @@ def _snippet_add(db: Database, args: argparse.Namespace) -> None:
 def _snippet_delete(db: Database, args: argparse.Namespace) -> None:
     db.delete_snippet(args.id)
     print(f"✓  Snippet #{args.id} deleted.")
+
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+_CONFIG_KEYS = {
+    "snippet_palette": {
+        "pref": "snippet_palette_ui",
+        "values": ("terminal", "graphical"),
+        "help": "CLI snippet palette UI (F2 / Ctrl-] in ssh sessions)",
+    },
+}
+
+
+def cmd_config(db: Database, args: argparse.Namespace) -> None:
+    """Get or set sshelf preferences from the terminal."""
+    key = getattr(args, "key", None)
+    value = getattr(args, "value", None)
+
+    if not key:
+        print("sshelf config — available keys:\n")
+        for name, meta in _CONFIG_KEYS.items():
+            cur = db.get_pref(meta["pref"], meta["values"][0])
+            print(f"  {name:<20}  {cur}  ({meta['help']})")
+        print("\nUsage: sshelf config <key> [value]")
+        return
+
+    if key not in _CONFIG_KEYS:
+        print(f"[sshelf] Unknown config key: {key!r}", file=sys.stderr)
+        print(f"  Valid keys: {', '.join(_CONFIG_KEYS)}", file=sys.stderr)
+        sys.exit(1)
+
+    meta = _CONFIG_KEYS[key]
+    if value is None:
+        cur = db.get_pref(meta["pref"], meta["values"][0])
+        print(cur)
+        return
+
+    if value not in meta["values"]:
+        print(
+            f"[sshelf] Invalid value {value!r} for {key}. "
+            f"Choose: {', '.join(meta['values'])}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    db.set_pref(meta["pref"], value)
+    print(f"✓  {key} = {value}")

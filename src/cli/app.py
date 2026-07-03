@@ -14,6 +14,7 @@ sshelf connect <name|id>         open an interactive SSH session
 sshelf snippet list [--conn …]   list saved commands / snippets
 sshelf snippet add [flags]       add a snippet
 sshelf snippet delete <id>       delete a snippet by id
+sshelf config [KEY] [VALUE]      view or set preferences (e.g. snippet_palette)
 sshelf mount <conn> <local> <remote> [--save LABEL]
                                  mount local dir on remote host (blocks until Ctrl-C)
 sshelf mount <conn> --use LABEL  mount using a saved config
@@ -43,12 +44,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "  sshelf delete web-prod             # delete (confirms)\n"
             "  sshelf delete web-prod -y          # delete, skip confirm\n"
             "  sshelf connect web-prod            # open SSH session\n"
-            "    (in session)  Ctrl-G             # open snippet palette\n"
-            "    (in session)  Ctrl-X             # type snippet name/# to insert\n"
+            "    (in session)  F2 or Ctrl-]       # open snippet palette\n"
+            "    (in session)  F3 or Ctrl-_       # type snippet name/# to insert\n"
             "  sshelf snippet list                # global snippets\n"
             "  sshelf snippet list --conn pi      # global + pi's snippets\n"
             "  sshelf snippet add -t 'Update' -c 'apt update && apt upgrade -y'\n"
             "  sshelf snippet delete 5\n"
+            "  sshelf config snippet_palette terminal   # numbered palette in SSH\n"
+            "  sshelf config snippet_palette graphical  # popup dialog palette\n"
             "  sshelf mount web ~/work /mnt/work  # mount local dir on remote\n"
             "  sshelf mount web ~/work /mnt/work --save mywork  # save config\n"
             "  sshelf mount web --use mywork      # reuse saved config\n"
@@ -155,6 +158,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sd = snip_sub.add_parser("delete", help="delete a snippet by id")
     p_sd.add_argument("id", metavar="ID", type=int)
 
+    # ── config ─────────────────────────────────────────────────────────────
+    p_config = sub.add_parser(
+        "config",
+        help="view or set sshelf preferences",
+        description="View or set sshelf preferences from the terminal.",
+    )
+    p_config.add_argument(
+        "key",
+        nargs="?",
+        help="preference key (e.g. snippet_palette)",
+    )
+    p_config.add_argument(
+        "value",
+        nargs="?",
+        help="new value (omit to print current value)",
+    )
+
     return parser
 
 
@@ -211,6 +231,11 @@ def cli_main() -> None:
     elif cmd == "snippet":
         from src.cli.commands import cmd_snippet
         cmd_snippet(args)
+
+    elif cmd == "config":
+        from src.cli.commands import cmd_config
+        from src.storage.database import Database
+        cmd_config(Database(), args)
 
     else:
         parser.print_help()

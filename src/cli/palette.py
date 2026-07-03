@@ -1,22 +1,23 @@
 """Snippet picker for in-session CLI use.
 
 Two entry points:
-    pick_snippet_palette(snippets, db, conn_id)   Ctrl-G: fuzzy palette
-    pick_snippet_typed(snippets, db, conn_id)     Ctrl-X: type name/# picker
+    pick_snippet_palette(snippets, db, conn_id)   F2 / Ctrl-]: palette
+    pick_snippet_typed(snippets, db, conn_id)     F3 / Ctrl-_: type name/# picker
+
+Preference ``snippet_palette_ui`` (Database):
+    ``terminal``  — numbered text menu in the terminal (default)
+    ``graphical`` — prompt_toolkit radio dialog (requires prompt_toolkit)
 
 Both return (command_text | None, updated_snippet_list).
-
-- If command_text is not None it should be inserted into the SSH channel
-  WITHOUT a trailing newline (user presses Enter to run).
-- If None, the user cancelled.
-
-prompt_toolkit is used for the palette when available; falls back to a
-plain numbered menu that works on any terminal (including Windows cmd).
 """
 
 from __future__ import annotations
 
 from typing import Optional
+
+PREF_SNIPPET_PALETTE_UI = "snippet_palette_ui"
+PALETTE_UI_TERMINAL = "terminal"
+PALETTE_UI_GRAPHICAL = "graphical"
 
 _HAS_PTK = False
 try:
@@ -24,6 +25,13 @@ try:
     _HAS_PTK = True
 except ImportError:
     pass
+
+
+def _use_graphical_palette(db) -> bool:
+    """True when the user chose the graphical palette and prompt_toolkit is available."""
+    if not _HAS_PTK:
+        return False
+    return db.get_pref(PREF_SNIPPET_PALETTE_UI, PALETTE_UI_TERMINAL) == PALETTE_UI_GRAPHICAL
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +135,7 @@ def _palette_menu(
 
 
 # ---------------------------------------------------------------------------
-# Typed-escape mode (Ctrl-X)
+# Typed-escape mode (F3 / Ctrl-_)
 # ---------------------------------------------------------------------------
 
 def _typed_menu(
@@ -193,15 +201,15 @@ def pick_snippet_palette(
     db,
     conn_id: Optional[int],
 ) -> tuple[Optional[str], list[dict]]:
-    """Ctrl-G: open the snippet palette.
+    """F2 / Ctrl-]: open the snippet palette.
 
-    Uses prompt_toolkit fuzzy dialog when available, plain numbered menu
-    otherwise. Returns (command | None, refreshed_snippet_list).
+    UI style comes from preference ``snippet_palette_ui`` (default: terminal).
+    Returns (command | None, refreshed_snippet_list).
     """
     if not snippets:
         print("\n  (no snippets yet — opening add dialog)")
         return _add_new_snippet(db, conn_id)
-    if _HAS_PTK:
+    if _use_graphical_palette(db):
         return _palette_ptk(snippets, db, conn_id)
     return _palette_menu(snippets, db, conn_id)
 
@@ -211,7 +219,7 @@ def pick_snippet_typed(
     db,
     conn_id: Optional[int],
 ) -> tuple[Optional[str], list[dict]]:
-    """Ctrl-X: open the typed snippet picker.
+    """F3 / Ctrl-_: open the typed snippet picker.
 
     Returns (command | None, refreshed_snippet_list).
     """

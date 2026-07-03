@@ -186,6 +186,20 @@ class PreferencesDialog(QDialog):
         )
         feat_form.addRow("Commands / Snippets (⚡):", self._feat_snippets)
 
+        self._snippet_palette_ui = QComboBox()
+        self._snippet_palette_ui.addItems(["Terminal", "Graphical"])
+        saved_palette = db.get_pref("snippet_palette_ui", "terminal")
+        self._snippet_palette_ui.setCurrentIndex(
+            1 if saved_palette == "graphical" else 0
+        )
+        self._snippet_palette_ui.setToolTip(
+            "How the CLI snippet palette looks when you press F2 or Ctrl-] in\n"
+            "an SSH session (sshelf connect).\n"
+            "Terminal — numbered list in the shell (default).\n"
+            "Graphical — popup dialog (requires prompt_toolkit)."
+        )
+        feat_form.addRow("CLI snippet palette:", self._snippet_palette_ui)
+
         self._feat_sftp = QCheckBox()
         self._feat_sftp.setChecked(db.get_pref("feature_sftp", "1") == "1")
         self._feat_sftp.setToolTip(
@@ -257,6 +271,8 @@ class PreferencesDialog(QDialog):
         self.db.set_pref("feature_broadcast", "1" if self._feat_broadcast.isChecked() else "0")
         self.db.set_pref("feature_logging",   "1" if self._feat_logging.isChecked() else "0")
         self.db.set_pref("feature_snippets",  "1" if self._feat_snippets.isChecked() else "0")
+        palette_ui = ["terminal", "graphical"][self._snippet_palette_ui.currentIndex()]
+        self.db.set_pref("snippet_palette_ui", palette_ui)
         self.db.set_pref("feature_sftp",      "1" if self._feat_sftp.isChecked() else "0")
         self.db.set_pref("feature_tunnels",   "1" if self._feat_tunnels.isChecked() else "0")
         self.db.set_pref("feature_mounts",    "1" if self._feat_mounts.isChecked() else "0")

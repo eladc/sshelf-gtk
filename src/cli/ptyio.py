@@ -14,8 +14,11 @@ enter_raw()         Put local terminal into raw / no-echo mode.
 exit_raw()          Restore the terminal to the state before enter_raw().
 pause_raw()         Temporarily restore cooked mode (call inside raw session).
 resume_raw()        Re-enter raw mode after pause_raw().
+drain_stdin()       Discard pending stdin bytes (after cooked-mode dialogs).
+reset_display()     Reset SGR/cursor after a dialog left the screen dirty.
 raw_terminal()      Context manager wrapping enter_raw / exit_raw.
 read_stdin_byte()   Non-blocking: return next byte(s) from stdin or None.
+read_stdin_key()    Non-blocking: detect snippet hotkeys or return bytes to forward.
 channel_ready(ch)   True when paramiko channel has data waiting.
 write_stdout(data)  Write raw bytes to stdout, flush immediately.
 set_terminal_title(t) Set terminal window/tab title via OSC escape.
@@ -37,6 +40,7 @@ if not _IS_WIN:
     import os
     import select
     import termios
+    import time
     import tty
 
     # Module-level saved terminal attrs (cooked state before raw was entered)
@@ -61,8 +65,16 @@ if not _IS_WIN:
         exit_raw()
 
     def resume_raw() -> None:
-        """Re-enter raw mode after pause_raw(). Refreshes saved attrs."""
-        enter_raw()
+        """Re-enter raw mode without overwriting attrs saved at session start."""
+        tty.setraw(sys.stdin.fileno())
+
+    def drain_stdin() -> None:
+        """Discard any bytes waiting on stdin."""
+        while True:
+            r, _, _ = select.select([sys.stdin], [], [], 0)
+            if not r:
+                break
+            os.read(sys.stdin.fileno(), 4096)
 
     def read_stdin_byte() -> bytes | None:
         """Non-blocking: return one byte from stdin, or None if nothing ready."""
@@ -70,6 +82,47 @@ if not _IS_WIN:
         if r:
             return os.read(sys.stdin.fileno(), 1)
         return None
+
+    def _read_stdin_esc_tail() -> bytes:
+        """Read bytes that may follow ESC in a key sequence."""
+        parts: list[bytes] = []
+        deadline = time.monotonic() + 0.04
+        while time.monotonic() < deadline:
+            r, _, _ = select.select([sys.stdin], [], [], 0.008)
+            if not r:
+                if parts:
+                    break
+                continue
+            parts.append(os.read(sys.stdin.fileno(), 32))
+        return b"".join(parts)
+
+    def read_stdin_key(
+        *,
+        ctrl_palette: bytes,
+        ctrl_typed: bytes,
+        seq_palette: frozenset[bytes],
+        seq_typed: frozenset[bytes],
+    ) -> tuple[str | None, bytes]:
+        """Return (action, forward_bytes).
+
+        action is ``'palette'``, ``'typed'``, ``'forward'``, or ``None``.
+        When action is ``'forward'``, *forward_bytes* is the raw input to send.
+        """
+        byte = read_stdin_byte()
+        if byte is None:
+            return None, b""
+        if byte == ctrl_palette:
+            return "palette", b""
+        if byte == ctrl_typed:
+            return "typed", b""
+        if byte != b"\x1b":
+            return "forward", byte
+        seq = byte + _read_stdin_esc_tail()
+        if seq in seq_palette:
+            return "palette", b""
+        if seq in seq_typed:
+            return "typed", b""
+        return "forward", seq
 
 # ---------------------------------------------------------------------------
 # Windows implementation
@@ -145,7 +198,17 @@ else:
         exit_raw()
 
     def resume_raw() -> None:
-        enter_raw()
+        """Re-enter raw mode without overwriting attrs saved at session start."""
+        in_h = _kernel32.GetStdHandle(_STD_INPUT_HANDLE)
+        out_h = _kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)
+        _kernel32.SetConsoleMode(in_h, _ENABLE_VIRTUAL_TERMINAL_INPUT)
+        if _saved_out_mode is not None:
+            _kernel32.SetConsoleMode(out_h, _saved_out_mode | _ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+
+    def drain_stdin() -> None:
+        """Discard any bytes waiting on stdin."""
+        while msvcrt.kbhit():
+            msvcrt.getch()
 
     def read_stdin_byte() -> bytes | None:
         """Non-blocking: return next byte(s) from stdin or None.
@@ -163,6 +226,26 @@ else:
                 return _SCAN_MAP.get((ch, scan), ch + scan)
             return ch
         return ch
+
+    def read_stdin_key(
+        *,
+        ctrl_palette: bytes,
+        ctrl_typed: bytes,
+        seq_palette: frozenset[bytes],
+        seq_typed: frozenset[bytes],
+    ) -> tuple[str | None, bytes]:
+        byte = read_stdin_byte()
+        if byte is None:
+            return None, b""
+        if byte == ctrl_palette:
+            return "palette", b""
+        if byte == ctrl_typed:
+            return "typed", b""
+        if byte in seq_palette:
+            return "palette", b""
+        if byte in seq_typed:
+            return "typed", b""
+        return "forward", byte
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +271,12 @@ def write_stdout(data: bytes) -> None:
     """Write raw bytes to stdout and flush immediately."""
     sys.stdout.buffer.write(data)
     sys.stdout.buffer.flush()
+
+
+def reset_display() -> None:
+    """Best-effort terminal cleanup after a cooked-mode dialog (e.g. snippet picker)."""
+    sys.stdout.write("\033[0m\033[?25h")
+    sys.stdout.flush()
 
 
 def set_terminal_title(title: str) -> None:
