@@ -58,7 +58,7 @@ from PyQt6.QtGui import (
     QTextCharFormat, QTextCursor, QTextDocument,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -883,8 +883,30 @@ class TerminalWidget(QWidget):
         self._worker.connected.connect(self._on_connected)
         self._worker.data_received.connect(self._on_data)
         self._worker.error.connect(self._on_error)
+        self._worker.host_key_prompt.connect(self._on_host_key_prompt)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()
+
+    def _on_host_key_prompt(self, hostname: str, keytype: str, fingerprint: str) -> None:
+        """Ask whether to trust a host key we have never seen before.
+
+        Runs on the GUI thread; the worker thread is blocked until answered.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unknown host key")
+        box.setText(f"The authenticity of host '{hostname}' can't be established.")
+        box.setInformativeText(
+            f"{keytype} key fingerprint:\n{fingerprint}\n\n"
+            "This is expected the first time you connect to this host. If you "
+            "did not expect it, someone may be impersonating the host."
+        )
+        trust = box.addButton("Trust and connect", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if self._worker:
+            self._worker.answer_host_key_prompt(box.clickedButton() is trust)
 
     def _on_disconnect(self) -> None:
         """User-initiated disconnect — always closes the tab."""

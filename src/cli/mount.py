@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from src.cli.commands import resolve_connection
+from src.cli.hostkey import confirm_host_key, describe_connect_error
 from src.models.mount import Mount
 from src.protocols.sshfs_mount import (
     ReverseMount,
@@ -81,9 +82,9 @@ def cmd_mount(args) -> None:
     # Connect
     print(f"\n── Mounting on {conn.display_name()} ({conn.host}:{conn.effective_port()}) ──\n")
     try:
-        client = ssh_core.establish(conn)
+        client = ssh_core.establish(conn, confirm_host_key=confirm_host_key)
     except Exception as exc:  # noqa: BLE001
-        print(f"[sshelf] Connection failed: {exc}", file=sys.stderr)
+        print(f"[sshelf] {describe_connect_error(exc)}", file=sys.stderr)
         sys.exit(1)
 
     transport = client.get_transport()
@@ -161,9 +162,9 @@ def cmd_unmount(args) -> None:
 
     print(f"[sshelf] Connecting to {conn.display_name()} to unmount {args.remote_dir} ...")
     try:
-        client = ssh_core.establish(conn)
+        client = ssh_core.establish(conn, confirm_host_key=confirm_host_key)
     except Exception as exc:  # noqa: BLE001
-        print(f"[sshelf] Connection failed: {exc}", file=sys.stderr)
+        print(f"[sshelf] {describe_connect_error(exc)}", file=sys.stderr)
         sys.exit(1)
 
     from src.protocols.sshfs_mount import _shell_remote_path

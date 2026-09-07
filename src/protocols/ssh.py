@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from typing import Optional
 
@@ -24,12 +25,16 @@ class SSHWorker(QObject):
     connected()                  — shell channel is open
     data_received(bytes)         — raw bytes from the remote shell
     error(str)                   — connection / auth error message
+    host_key_prompt(str,str,str) — unknown host key awaiting user approval;
+                                   the GUI must answer with
+                                   answer_host_key_prompt()
     finished()                   — session fully closed
     """
 
     connected = pyqtSignal()
     data_received = pyqtSignal(bytes)
     error = pyqtSignal(str)
+    host_key_prompt = pyqtSignal(str, str, str)
     finished = pyqtSignal()
 
     def __init__(self, connection: Connection) -> None:
@@ -38,6 +43,8 @@ class SSHWorker(QObject):
         self._client: Optional[paramiko.SSHClient] = None
         self._channel: Optional[paramiko.Channel] = None
         self._running = False
+        self._host_key_answered = threading.Event()
+        self._host_key_trusted = False
 
     # ------------------------------------------------------------------
     # Public slot — called from the thread's start event
@@ -46,8 +53,10 @@ class SSHWorker(QObject):
     def run(self) -> None:
         """Open the SSH session and start reading in a loop."""
         try:
-            self._client = ssh_core.build_client()
-            self._client.connect(**ssh_core.connect_kwargs(self._conn))
+            self._client = ssh_core.build_client(self._confirm_host_key)
+            self._client.connect(
+                **ssh_core.connect_kwargs(self._conn, self._confirm_host_key)
+            )
             self._channel = self._client.invoke_shell(
                 term="xterm-256color",
                 width=200,
@@ -62,6 +71,17 @@ class SSHWorker(QObject):
 
             self._read_loop()
 
+        except paramiko.BadHostKeyException as exc:
+            self.error.emit(
+                f"WARNING: the host key for {exc.hostname} has changed.\n"
+                f"Expected {ssh_core.fingerprint(exc.expected_key)}, "
+                f"got {ssh_core.fingerprint(exc.key)}.\n"
+                "Someone may be intercepting this connection, or the host was "
+                "rebuilt. If the change is legitimate, remove the old entry "
+                f"with:  ssh-keygen -R '{exc.hostname}'"
+            )
+        except ssh_core.UnknownHostKeyError as exc:
+            self.error.emit(str(exc))
         except paramiko.AuthenticationException as exc:
             self.error.emit(f"Authentication failed: {exc}")
         except paramiko.SSHException as exc:
@@ -112,7 +132,26 @@ class SSHWorker(QObject):
 
     def disconnect(self) -> None:
         self._running = False
+        # Release a pending host key prompt so this thread cannot hang on it.
+        self.answer_host_key_prompt(False)
         self._cleanup()
+
+    # ------------------------------------------------------------------
+    # Host key confirmation (worker thread asks, GUI thread answers)
+    # ------------------------------------------------------------------
+
+    def _confirm_host_key(self, hostname: str, keytype: str, fingerprint: str) -> bool:
+        """Block this worker thread until the GUI approves an unseen host key."""
+        self._host_key_trusted = False
+        self._host_key_answered.clear()
+        self.host_key_prompt.emit(hostname, keytype, fingerprint)
+        self._host_key_answered.wait()
+        return self._host_key_trusted
+
+    def answer_host_key_prompt(self, trusted: bool) -> None:
+        """Deliver the user's answer. Safe to call from the GUI thread."""
+        self._host_key_trusted = trusted
+        self._host_key_answered.set()
 
     # ------------------------------------------------------------------
     # Internal

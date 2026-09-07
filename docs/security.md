@@ -94,8 +94,18 @@ The import path (**File → Import Connections from JSON…**) reads passwords f
 
 ---
 
+## Host key verification
+
+sshelf verifies server host keys against your existing `~/.ssh/known_hosts` (plus `/etc/ssh/ssh_known_hosts`), the same file OpenSSH uses — so a host you have already `ssh`'d to from a terminal is trusted without prompting.
+
+- **Unknown host** — you are shown the key's SHA256 fingerprint and asked whether to trust it (trust-on-first-use). The GUI shows a dialog; the CLI asks on the terminal. Accepting appends the key to `~/.ssh/known_hosts`; declining aborts the connection.
+- **Changed host key** — the connection is always refused with a warning, and no prompt is offered. This is the man-in-the-middle case. If the host was legitimately rebuilt or rekeyed, drop the stale entry with `ssh-keygen -R '<host>'` and reconnect.
+- **Jump hosts** are verified the same way, since a jump host sees all traffic to the target.
+- **No TTY, no prompt** — if the CLI has no terminal to ask on (a scripted run), an unknown host is refused rather than trusted silently.
+
+`~/.ssh/known_hosts` is only ever appended to, never rewritten, so comments and `@cert-authority` / `@revoked` markers are preserved.
+
 ## Known limitations
 
 - **No SSH certificate support** — paramiko's certificate authentication is not yet wired up.
-- **No host key verification UI** — paramiko uses `AutoAddPolicy` by default, meaning unknown host keys are accepted automatically. This is convenient but disables TOFU (trust-on-first-use) protection. A future release should prompt the user and store accepted host keys.
 - **Single Keychain account per connection ID** — if you delete and recreate a connection it gets a new ID, so the old Keychain entry becomes orphaned. These can be cleaned up manually in Keychain Access.

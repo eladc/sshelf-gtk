@@ -23,6 +23,7 @@ import time
 import paramiko
 
 from src.cli.commands import resolve_connection
+from src.cli.hostkey import bad_host_key_message, confirm_host_key
 from src.cli.ptyio import (
     channel_ready,
     drain_stdin,
@@ -121,7 +122,13 @@ def cmd_connect(ref: str) -> None:
 
     # Establish the paramiko connection (credentials auto-loaded from keychain)
     try:
-        client = ssh_core.establish(conn)
+        client = ssh_core.establish(conn, confirm_host_key=confirm_host_key)
+    except paramiko.BadHostKeyException as exc:
+        print(bad_host_key_message(exc), file=sys.stderr)
+        sys.exit(1)
+    except ssh_core.UnknownHostKeyError as exc:
+        print(f"[sshelf] {exc}", file=sys.stderr)
+        sys.exit(1)
     except paramiko.AuthenticationException as exc:
         print(f"[sshelf] Authentication failed: {exc}", file=sys.stderr)
         sys.exit(1)
