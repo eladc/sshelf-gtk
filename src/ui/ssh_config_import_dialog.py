@@ -13,64 +13,14 @@ from PyQt6.QtWidgets import (
 )
 
 from src.models.connection import Connection
+from src.models.ssh_config import host_to_connection, parse_ssh_config
 from src.storage.database import Database
 
 
-def _parse_ssh_config(path: Path) -> list[dict]:
-    """
-    Parse an OpenSSH config file into a list of host dicts.
-    Skips the catch-all 'Host *' entry.
-    """
-    hosts: list[dict] = []
-    current: Optional[dict] = None
-
-    for raw in path.read_text(errors="replace").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        m = re.match(r"^(\w+)\s+(.+)$", line)
-        if not m:
-            continue
-        key, value = m.group(1).lower(), m.group(2).strip()
-
-        if key == "host":
-            # Each pattern in the Host line is a separate alias; skip wildcards
-            aliases = [a for a in value.split() if "*" not in a and "?" not in a]
-            if not aliases:
-                current = None
-                continue
-            # Use the first alias as the connection name
-            current = {"name": aliases[0], "alias": aliases[0]}
-            hosts.append(current)
-        elif current is not None:
-            if key == "hostname":
-                current["hostname"] = value
-            elif key == "user":
-                current["user"] = value
-            elif key == "port":
-                try:
-                    current["port"] = int(value)
-                except ValueError:
-                    pass
-            elif key == "identityfile":
-                current["identityfile"] = str(Path(value).expanduser())
-            elif key in ("proxyjump", "proxyjump"):
-                current["proxyjump"] = value
-
-    return hosts
-
-
-def _host_to_connection(h: dict) -> Connection:
-    conn = Connection()
-    conn.name     = h.get("name", "")
-    conn.host     = h.get("hostname", h.get("alias", ""))
-    conn.username = h.get("user", "")
-    conn.port     = h.get("port", 22)
-    conn.private_key_file = h.get("identityfile", "")
-    conn.jump_host = h.get("proxyjump", "")
-    conn.group    = "Imported"
-    return conn
+# Parsing lives in src/models/ssh_config.py so the GTK build can share it;
+# these aliases keep the original names used below.
+_parse_ssh_config = parse_ssh_config
+_host_to_connection = host_to_connection
 
 
 class SshConfigImportDialog(QDialog):

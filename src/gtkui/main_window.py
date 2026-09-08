@@ -5,7 +5,7 @@ from __future__ import annotations
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Pango  # noqa: E402
+from gi.repository import Gio, Gtk, Pango  # noqa: E402
 
 from src.gtkui.connection_tree import ConnectionTree
 from src.models.connection import Connection
@@ -55,6 +55,28 @@ class MainWindow(Gtk.ApplicationWindow):
         self._quick.set_max_width_chars(22)
         self._quick.connect("activate", self._on_quick_connect)
         header.pack_end(self._quick)
+
+        menu = Gio.Menu()
+        section = Gio.Menu()
+        section.append("Import from ~/.ssh/config…", "win.import-ssh-config")
+        section.append("Generate SSH Key…", "win.generate-key")
+        menu.append_section(None, section)
+        menu.append("Preferences", "win.preferences")
+
+        menu_btn = Gtk.MenuButton()
+        menu_btn.set_icon_name("open-menu-symbolic")
+        menu_btn.set_tooltip_text("Main menu")
+        menu_btn.set_menu_model(menu)
+        header.pack_end(menu_btn)
+
+        for name, handler in (
+            ("preferences", self._on_preferences),
+            ("generate-key", self._on_generate_key),
+            ("import-ssh-config", self._on_import_ssh_config),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
 
     def _build_body(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -206,6 +228,37 @@ class MainWindow(Gtk.ApplicationWindow):
             )
 
         ConnectionDialog(self.db, conn, parent=self, on_saved=saved).present()
+
+    def _on_preferences(self, *_args) -> None:
+        from src.gtkui.preferences_dialog import PreferencesDialog
+
+        PreferencesDialog(
+            self.db, parent=self, on_applied=self._apply_preferences
+        ).present()
+
+    def _apply_preferences(self) -> None:
+        """Push changed preferences into open terminals."""
+        for i in range(self._notebook.get_n_pages()):
+            page = self._notebook.get_nth_page(i)
+            if hasattr(page, "apply_appearance"):
+                page.apply_appearance()
+        self.set_status("Preferences saved.")
+
+    def _on_generate_key(self, *_args) -> None:
+        from src.gtkui.key_gen_dialog import KeyGenerationDialog
+
+        KeyGenerationDialog(parent=self).present()
+
+    def _on_import_ssh_config(self, *_args) -> None:
+        from src.gtkui.ssh_config_import_dialog import SshConfigImportDialog
+
+        def imported(count: int) -> None:
+            self._tree.reload()
+            self.set_status(
+                f"Imported {count} connection{'s' if count != 1 else ''}."
+            )
+
+        SshConfigImportDialog(self.db, parent=self, on_imported=imported).present()
 
     def _on_quick_connect(self, entry) -> None:
         text = entry.get_text().strip()

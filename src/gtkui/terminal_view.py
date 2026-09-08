@@ -26,6 +26,7 @@ from gi.repository import GLib, Gdk, Gtk, Pango, Vte  # noqa: E402
 from src.models.connection import Connection
 from src.protocols.ssh_session import SSHSession
 from src.storage.database import Database
+from src.ui.themes import get_theme  # pure data, no Qt import
 
 _SCROLLBACK = 10000
 
@@ -79,9 +80,6 @@ class TerminalView(Gtk.Box):
         self._term.set_scrollback_lines(_SCROLLBACK)
         self._term.set_mouse_autohide(True)
         self._term.set_cursor_blink_mode(Vte.CursorBlinkMode.ON)
-        self._term.set_font(Pango.FontDescription("Monospace 11"))
-        self._term.set_colors(_rgba("#d3d7cf"), _rgba("#1c1c1c"),
-                              [_rgba(c) for c in _PALETTE])
         self._term.set_hexpand(True)
         self._term.set_vexpand(True)
         # No local PTY: bytes are fed in from the SSH channel instead.
@@ -91,12 +89,35 @@ class TerminalView(Gtk.Box):
         # through these instead.
         self._term.connect("notify::column-count", self._on_grid_changed)
         self._term.connect("notify::row-count", self._on_grid_changed)
+        self.apply_appearance()
+
+        self._toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self._toolbar.set_margin_top(4)
+        self._toolbar.set_margin_start(6)
+        self._toolbar.set_margin_end(6)
+        self.append(self._toolbar)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_vexpand(True)
         scroller.set_child(self._term)
-        self.append(scroller)
+
+        # Terminal on the left, side panels on the right.
+        self._paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self._paned.set_vexpand(True)
+        self._paned.set_start_child(scroller)
+        self._paned.set_resize_start_child(True)
+
+        self._panel_stack = Gtk.Stack()
+        self._panel_stack.set_size_request(320, -1)
+        self._panel_stack.set_visible(False)
+        self._paned.set_end_child(self._panel_stack)
+        self._paned.set_resize_end_child(False)
+        self.append(self._paned)
+
+        self._panels: dict[str, Gtk.Widget] = {}
+        self._panel_buttons: dict[str, Gtk.ToggleButton] = {}
+        self._build_panel_buttons()
 
         # Reconnect bar, hidden until the session drops
         self._bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -121,6 +142,106 @@ class TerminalView(Gtk.Box):
         self.append(self._bar)
 
     # ------------------------------------------------------------------
+    # Appearance / side panels
+    # ------------------------------------------------------------------
+
+    def apply_appearance(self) -> None:
+        """Apply the terminal theme and font size from preferences."""
+        size = 11
+        theme_name = ""
+        if self._db is not None:
+            try:
+                size = int(self._db.get_pref("terminal_font_size", "13"))
+                theme_name = self._db.get_pref("terminal_theme", "")
+            except (TypeError, ValueError):
+                pass
+
+        self._term.set_font(Pango.FontDescription(f"Monospace {size}"))
+
+        if theme_name:
+            theme = get_theme(theme_name)
+            palette = [
+                theme.black, theme.red, theme.green, theme.yellow,
+                theme.blue, theme.magenta, theme.cyan, theme.white,
+                theme.bright_black, theme.bright_red, theme.bright_green,
+                theme.bright_yellow, theme.bright_blue, theme.bright_magenta,
+                theme.bright_cyan, theme.bright_white,
+            ]
+            self._term.set_colors(_rgba(theme.fg), _rgba(theme.bg),
+                                  [_rgba(c) for c in palette])
+            self._term.set_color_cursor(_rgba(theme.cursor))
+        else:
+            self._term.set_colors(_rgba("#d3d7cf"), _rgba("#1c1c1c"),
+                                  [_rgba(c) for c in _PALETTE])
+
+    def _enabled(self, key: str, default: str) -> bool:
+        if self._db is None:
+            return default == "1"
+        return self._db.get_pref(key, default) == "1"
+
+    def _build_panel_buttons(self) -> None:
+        """One toggle per enabled side panel."""
+        specs = [
+            ("files", "folder-symbolic", "Files (SFTP)", "feature_sftp", "1"),
+            ("commands", "media-playback-start-symbolic", "Commands",
+             "feature_snippets", "1"),
+            ("tunnels", "network-transmit-receive-symbolic", "Port forwarding",
+             "feature_tunnels", "0"),
+        ]
+        for name, icon, tooltip, pref, default in specs:
+            if not self._enabled(pref, default):
+                continue
+            button = Gtk.ToggleButton()
+            button.set_icon_name(icon)
+            button.set_tooltip_text(tooltip)
+            button.set_has_frame(False)
+            button.connect("toggled", self._on_panel_toggled, name)
+            self._toolbar.append(button)
+            self._panel_buttons[name] = button
+
+    def _on_panel_toggled(self, button: Gtk.ToggleButton, name: str) -> None:
+        if not button.get_active():
+            if self._panel_stack.get_visible_child_name() == name:
+                self._panel_stack.set_visible(False)
+            return
+
+        # Radio-like behaviour: only one panel open at a time.
+        for other, other_button in self._panel_buttons.items():
+            if other != name and other_button.get_active():
+                other_button.set_active(False)
+
+        self._ensure_panel(name)
+        self._panel_stack.set_visible_child_name(name)
+        self._panel_stack.set_visible(True)
+
+    def _ensure_panel(self, name: str) -> None:
+        if name in self._panels:
+            return
+
+        conn_id = self._conn.id
+        if name == "files":
+            from src.gtkui.sftp_panel import SFTPPanel
+            panel = SFTPPanel()
+            if self._connected and self._session is not None:
+                panel.attach(self._session)
+        elif name == "commands":
+            from src.gtkui.snippets_panel import SnippetsPanel
+            panel = SnippetsPanel(self._db, conn_id)
+            panel.on_send = self._send_text
+        else:
+            from src.gtkui.tunnel_panel import TunnelPanel
+            panel = TunnelPanel(self._db, conn_id)
+            if self._connected and self._session is not None:
+                panel.set_transport(self._session.get_transport())
+
+        self._panels[name] = panel
+        self._panel_stack.add_named(panel, name)
+
+    def _send_text(self, text: str) -> None:
+        if self._session is not None:
+            self._session.send(text)
+
+    # ------------------------------------------------------------------
     # Public API (contract used by MainWindow)
     # ------------------------------------------------------------------
 
@@ -141,6 +262,12 @@ class TerminalView(Gtk.Box):
     def shutdown(self) -> None:
         """Close the session without emitting on_closed (tab is going away)."""
         self._closed = True
+        panel = self._panels.get("tunnels")
+        if panel is not None:
+            panel.shutdown()
+        panel = self._panels.get("files")
+        if panel is not None:
+            panel.detach()
         if self._session:
             self._session.disconnect()
 
@@ -175,6 +302,13 @@ class TerminalView(Gtk.Box):
         if self._conn.id is not None:
             self.on_health(self._conn.id, "connected")
         self._term.grab_focus()
+
+        panel = self._panels.get("files")
+        if panel is not None:
+            panel.attach(self._session)
+        panel = self._panels.get("tunnels")
+        if panel is not None:
+            panel.set_transport(self._session.get_transport())
         return GLib.SOURCE_REMOVE
 
     def _ui_data(self, data: bytes) -> bool:
@@ -194,6 +328,13 @@ class TerminalView(Gtk.Box):
         was_connected, self._connected = self._connected, False
         if self._conn.id is not None:
             self.on_health(self._conn.id, "disconnected")
+
+        panel = self._panels.get("files")
+        if panel is not None:
+            panel.detach()
+        panel = self._panels.get("tunnels")
+        if panel is not None:
+            panel.set_transport(None)
         if self._closed:
             return GLib.SOURCE_REMOVE
         if was_connected and not self._bar.get_visible():

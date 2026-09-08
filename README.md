@@ -152,7 +152,7 @@ python main.py --upgrade           # update in-place and exit
 
 ## GTK4 build (experimental)
 
-A GTK4 port is underway to replace the PyQt6 UI. Ported so far: main window, connection tree, the add/edit connection editor, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the remaining dialogs/side panels (preferences, SFTP, tunnels, snippets, key generation, ~/.ssh/config import) are still Qt-only.
+A GTK4 port is underway to replace the PyQt6 UI. Ported so far: main window, connection tree, SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses), the add/edit connection editor, preferences, SSH key generation, `~/.ssh/config` import, and the SFTP / commands / port-forwarding side panels. Still Qt-only: RDP and VNC sessions, split panes, the command palette, session logging and broadcast input.
 
 It's reached via a `--gtk` flag on the existing `gui` command, so both UIs currently ship side by side:
 
@@ -216,6 +216,7 @@ sshelf/
     ├── app.py                       QApplication subclass — theme management
     ├── models/
     │   ├── connection.py            Connection dataclass + to_dict / from_dict
+    │   ├── ssh_config.py            OpenSSH config parser (shared by both UIs)
     │   └── tunnel.py                Tunnel dataclass (port-forwarding rules)
     ├── storage/
     │   ├── database.py              SQLite persistence (connections, preferences, snippets, tunnels)
@@ -225,6 +226,7 @@ sshelf/
     │   ├── ssh.py                   SSHWorker: paramiko in a QThread (Qt UI)
     │   ├── ssh_core.py              Toolkit-neutral paramiko helpers + host key verification
     │   ├── ssh_session.py           Toolkit-neutral threaded SSH session (plain callbacks; used by the GTK UI)
+    │   ├── tunnel_core.py           Toolkit-neutral port-forwarding workers
     │   └── tunnel_worker.py         LocalTunnelWorker + RemoteTunnelWorker
     ├── ui/                          Qt UI (primary build)
     │   ├── main_window.py           Main window + tab manager + tray icon + broadcast
@@ -246,6 +248,13 @@ sshelf/
         ├── main_window.py           Header bar + connection tree + session notebook
         ├── connection_tree.py       Gtk.ColumnView + TreeListModel connection list
         ├── connection_dialog.py     Add / edit connection editor
+        ├── preferences_dialog.py    App preferences
+        ├── key_gen_dialog.py        SSH key pair generation
+        ├── ssh_config_import_dialog.py  ~/.ssh/config import
+        ├── sftp_panel.py            SFTP file browser side panel
+        ├── snippets_panel.py        Command snippets side panel
+        ├── tunnel_panel.py          Port-forwarding side panel
+        ├── widgets.py               Shared form/layout helpers
         └── terminal_view.py         SSH terminal tab (VTE-backed)
 ```
 
