@@ -2,6 +2,8 @@
 
 A Remmina-inspired SSH connection manager for macOS, Linux, and Windows, built with Python and PyQt6.
 
+An experimental GTK3 build is also in progress (Linux only, SSH sessions only so far) — see [GTK3 build](#gtk3-build-experimental) below.
+
 ![sshelf screenshot](assets/screenshot.png)
 
 ## Features
@@ -57,6 +59,7 @@ A Remmina-inspired SSH connection manager for macOS, Linux, and Windows, built w
   - Windows: Windows Credential Manager
   - Falls back to SQLite if no keychain backend is available
 - SSH key authentication with optional passphrase
+- **Host key verification** — server host keys are checked against `~/.ssh/known_hosts` (trust-on-first-use for hosts seen for the first time); a changed key is always refused, never silently trusted
 - Jump host (ProxyJump) support
 
 ### UI / UX
@@ -147,6 +150,30 @@ python main.py --name "Work"       # title becomes "SSHelf — Work"
 python main.py --upgrade           # update in-place and exit
 ```
 
+## GTK3 build (experimental)
+
+A GTK3 port is underway to replace the PyQt6 UI, starting with a working vertical slice: main window, connection tree, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the various dialogs/side panels (add/edit connection, preferences, SFTP, tunnels, snippets, key generation) are still Qt-only.
+
+It's reached via a `--gtk` flag on the existing `gui` command, so both UIs currently ship side by side:
+
+```bash
+sshelf gui --gtk
+```
+
+Requirements beyond `requirements.txt`: GTK 3 and VTE's GObject-Introspection bindings, which come from your system package manager rather than pip (PyGObject can't be installed as a normal wheel):
+
+```bash
+# Debian/Ubuntu
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91
+
+# Fedora
+sudo dnf install python3-gobject gtk3 vte291
+```
+
+Because the venv from `pip install -r requirements.txt` can't see system-installed GObject packages, run the GTK build with a venv created with `--system-site-packages`, or add a `.pth` file in your existing venv's `site-packages` pointing at your system's `dist-packages` directory.
+
+The GTK build will replace the Qt UI once it reaches parity; until then, `sshelf gui` (no flag) keeps launching the Qt build.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -195,23 +222,30 @@ sshelf/
     │   └── keychain.py              OS keychain wrapper (macOS Keychain / GNOME Keyring / Win Credential Manager)
     ├── protocols/
     │   ├── base.py                  Abstract base for protocol workers
-    │   ├── ssh.py                   SSHWorker: paramiko in a QThread
+    │   ├── ssh.py                   SSHWorker: paramiko in a QThread (Qt UI)
+    │   ├── ssh_core.py              Toolkit-neutral paramiko helpers + host key verification
+    │   ├── ssh_session.py           Toolkit-neutral threaded SSH session (plain callbacks; used by the GTK UI)
     │   └── tunnel_worker.py         LocalTunnelWorker + RemoteTunnelWorker
-    └── ui/
-        ├── main_window.py           Main window + tab manager + tray icon + broadcast
-        ├── connection_tree.py       Left panel: grouped connection list + health dots
-        ├── connection_dialog.py     Add / edit connection dialog
-        ├── terminal_widget.py       Embedded VT100 terminal (pyte + QPlainTextEdit)
-        ├── split_view.py            Horizontal split container for multiple terminal panes
-        ├── command_palette.py       Cmd+P fuzzy-search command palette
-        ├── welcome_widget.py        Home tab: welcome screen + connection detail
-        ├── preferences_dialog.py    App preferences (theme, icon theme, terminal theme)
-        ├── ssh_config_import_dialog.py  ~/.ssh/config import UI
-        ├── snippets_panel.py        Command snippets side panel
-        ├── sftp_panel.py            SFTP file browser side panel
-        ├── tunnel_panel.py          Port-forwarding side panel
-        ├── themes.py                Built-in terminal color themes
-        └── key_gen_dialog.py        SSH key pair generation dialog
+    ├── ui/                          Qt UI (primary build)
+    │   ├── main_window.py           Main window + tab manager + tray icon + broadcast
+    │   ├── connection_tree.py       Left panel: grouped connection list + health dots
+    │   ├── connection_dialog.py     Add / edit connection dialog
+    │   ├── terminal_widget.py       Embedded VT100 terminal (pyte + QPlainTextEdit)
+    │   ├── split_view.py            Horizontal split container for multiple terminal panes
+    │   ├── command_palette.py       Cmd+P fuzzy-search command palette
+    │   ├── welcome_widget.py        Home tab: welcome screen + connection detail
+    │   ├── preferences_dialog.py    App preferences (theme, icon theme, terminal theme)
+    │   ├── ssh_config_import_dialog.py  ~/.ssh/config import UI
+    │   ├── snippets_panel.py        Command snippets side panel
+    │   ├── sftp_panel.py            SFTP file browser side panel
+    │   ├── tunnel_panel.py          Port-forwarding side panel
+    │   ├── themes.py                Built-in terminal color themes
+    │   └── key_gen_dialog.py        SSH key pair generation dialog
+    └── gtkui/                       GTK3 UI (experimental, see "GTK3 build" above)
+        ├── app.py                   Gtk.Application entry point
+        ├── main_window.py           Header bar + connection tree + session notebook
+        ├── connection_tree.py       Gtk.TreeView grouped connection list
+        └── terminal_view.py         SSH terminal tab (VTE-backed)
 ```
 
 ## Data storage
