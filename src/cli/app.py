@@ -69,10 +69,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "-n", "--name", metavar="NAME", default=None,
         help="custom window title suffix (e.g. 'Work', 'Personal')",
     )
-    # Temporary during the GTK port; removed once GTK reaches parity.
+    # Temporary during the GTK4 port; removed once GTK reaches parity.
     p_gui.add_argument(
         "--gtk", action="store_true",
-        help="launch the GTK3 build instead of Qt (port in progress)",
+        help="launch the GTK4 build instead of Qt (port in progress)",
     )
 
     # ── list ───────────────────────────────────────────────────────────────

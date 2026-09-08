@@ -2,7 +2,7 @@
 
 A Remmina-inspired SSH connection manager for macOS, Linux, and Windows, built with Python and PyQt6.
 
-An experimental GTK3 build is also in progress (Linux only, SSH sessions only so far) — see [GTK3 build](#gtk3-build-experimental) below.
+An experimental GTK4 build is also in progress (Linux only, SSH sessions only so far) — see [GTK4 build](#gtk4-build-experimental) below.
 
 ![sshelf screenshot](assets/screenshot.png)
 
@@ -150,9 +150,9 @@ python main.py --name "Work"       # title becomes "SSHelf — Work"
 python main.py --upgrade           # update in-place and exit
 ```
 
-## GTK3 build (experimental)
+## GTK4 build (experimental)
 
-A GTK3 port is underway to replace the PyQt6 UI, starting with a working vertical slice: main window, connection tree, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the various dialogs/side panels (add/edit connection, preferences, SFTP, tunnels, snippets, key generation) are still Qt-only.
+A GTK4 port is underway to replace the PyQt6 UI, starting with a working vertical slice: main window, connection tree, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the various dialogs/side panels (add/edit connection, preferences, SFTP, tunnels, snippets, key generation) are still Qt-only.
 
 It's reached via a `--gtk` flag on the existing `gui` command, so both UIs currently ship side by side:
 
@@ -160,14 +160,14 @@ It's reached via a `--gtk` flag on the existing `gui` command, so both UIs curre
 sshelf gui --gtk
 ```
 
-Requirements beyond `requirements.txt`: GTK 3 and VTE's GObject-Introspection bindings, which come from your system package manager rather than pip (PyGObject can't be installed as a normal wheel):
+Requirements beyond `requirements.txt`: GTK 4 and VTE's GObject-Introspection bindings, which come from your system package manager rather than pip (PyGObject can't be installed as a normal wheel). Note VTE ships separate GTK3 and GTK4 builds — the GTK4 one (`Vte-3.91`) is required; `Vte-2.91` is the GTK3 build and cannot be embedded in a GTK4 window:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-vte-3.91
 
 # Fedora
-sudo dnf install python3-gobject gtk3 vte291
+sudo dnf install python3-gobject gtk4 vte291-gtk4
 ```
 
 Because the venv from `pip install -r requirements.txt` can't see system-installed GObject packages, run the GTK build with a venv created with `--system-site-packages`, or add a `.pth` file in your existing venv's `site-packages` pointing at your system's `dist-packages` directory.
@@ -241,10 +241,10 @@ sshelf/
     │   ├── tunnel_panel.py          Port-forwarding side panel
     │   ├── themes.py                Built-in terminal color themes
     │   └── key_gen_dialog.py        SSH key pair generation dialog
-    └── gtkui/                       GTK3 UI (experimental, see "GTK3 build" above)
+    └── gtkui/                       GTK4 UI (experimental, see "GTK4 build" above)
         ├── app.py                   Gtk.Application entry point
         ├── main_window.py           Header bar + connection tree + session notebook
-        ├── connection_tree.py       Gtk.TreeView grouped connection list
+        ├── connection_tree.py       Gtk.ColumnView + TreeListModel connection list
         └── terminal_view.py         SSH terminal tab (VTE-backed)
 ```
 

@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
 import gi
 
-gi.require_version("Gtk", "3.0")
+gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, Gtk  # noqa: E402
 
 from src.gtkui.main_window import MainWindow

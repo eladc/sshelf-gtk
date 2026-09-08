@@ -7,6 +7,9 @@ GTK main loop.
 
     remote ──► SSHSession.on_data ──GLib.idle_add──► Vte.Terminal.feed()
     Vte "commit" signal ─────────────────────────► SSHSession.send()
+
+Needs the GTK4 build of VTE (Vte-3.91, Debian: gir1.2-vte-3.91); the GTK3
+build (Vte-2.91) cannot be embedded in a GTK4 window.
 """
 
 from __future__ import annotations
@@ -15,8 +18,9 @@ from typing import Optional
 
 import gi
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("Vte", "2.91")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Vte", "3.91")
 from gi.repository import GLib, Gdk, Gtk, Pango, Vte  # noqa: E402
 
 from src.models.connection import Connection
@@ -44,8 +48,8 @@ _PALETTE = [
 class TerminalView(Gtk.Box):
     """One SSH session rendered in a VTE terminal.
 
-    Mirrors the Qt SplitView/TerminalWidget contract that MainWindow relies
-    on: matches_conn(), shutdown(), and the status/health/closed callbacks.
+    Mirrors the contract MainWindow relies on: matches_conn(), shutdown(),
+    and the status/health/closed callbacks.
     """
 
     def __init__(self, conn: Connection, db: Database, window: Gtk.Window) -> None:
@@ -78,32 +82,43 @@ class TerminalView(Gtk.Box):
         self._term.set_font(Pango.FontDescription("Monospace 11"))
         self._term.set_colors(_rgba("#d3d7cf"), _rgba("#1c1c1c"),
                               [_rgba(c) for c in _PALETTE])
+        self._term.set_hexpand(True)
+        self._term.set_vexpand(True)
         # No local PTY: bytes are fed in from the SSH channel instead.
         self._term.set_pty(None)
         self._term.connect("commit", self._on_commit)
-        self._term.connect("size-allocate", self._on_size_allocate)
-        self._term.connect("child-exited", lambda *_: None)
+        # GTK4 drops "size-allocate" for widgets; VTE reports grid changes
+        # through these instead.
+        self._term.connect("notify::column-count", self._on_grid_changed)
+        self._term.connect("notify::row-count", self._on_grid_changed)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.add(self._term)
-        self.pack_start(scroller, True, True, 0)
+        scroller.set_vexpand(True)
+        scroller.set_child(self._term)
+        self.append(scroller)
 
         # Reconnect bar, hidden until the session drops
-        self._bar = Gtk.InfoBar()
-        self._bar.set_message_type(Gtk.MessageType.WARNING)
-        self._bar_label = Gtk.Label(label="")
-        self._bar_label.set_line_wrap(True)
-        self._bar_label.set_xalign(0.0)
-        self._bar.get_content_area().add(self._bar_label)
-        self._bar.add_button("Reconnect", Gtk.ResponseType.OK)
-        self._bar.add_button("Close", Gtk.ResponseType.CLOSE)
-        self._bar.connect("response", self._on_bar_response)
-        self._bar.set_no_show_all(True)
-        self.pack_start(self._bar, False, False, 0)
+        self._bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._bar.set_margin_top(6)
+        self._bar.set_margin_bottom(6)
+        self._bar.set_margin_start(8)
+        self._bar.set_margin_end(8)
+        self._bar_label = Gtk.Label(xalign=0.0)
+        self._bar_label.set_wrap(True)
+        self._bar_label.set_hexpand(True)
+        self._bar.append(self._bar_label)
 
-        self.show_all()
-        self._bar.hide()
+        reconnect = Gtk.Button(label="Reconnect")
+        reconnect.connect("clicked", self._on_reconnect)
+        self._bar.append(reconnect)
+
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", self._on_close_clicked)
+        self._bar.append(close)
+
+        self._bar.set_visible(False)
+        self.append(self._bar)
 
     # ------------------------------------------------------------------
     # Public API (contract used by MainWindow)
@@ -137,7 +152,7 @@ class TerminalView(Gtk.Box):
         cols = max(self._term.get_column_count(), 80)
         rows = max(self._term.get_row_count(), 24)
         self._sent_size = (cols, rows)
-        self._bar.hide()
+        self._bar.set_visible(False)
 
         self._session = SSHSession(
             self._conn,
@@ -169,7 +184,7 @@ class TerminalView(Gtk.Box):
     def _ui_error(self, msg: str) -> bool:
         self._term.feed(f"\r\n\x1b[31m{msg}\x1b[0m\r\n".encode())
         self._bar_label.set_text(msg)
-        self._bar.show()
+        self._bar.set_visible(True)
         self.on_status(msg.splitlines()[0] if msg else "Connection failed")
         if self._conn.id is not None:
             self.on_health(self._conn.id, "error")
@@ -183,29 +198,39 @@ class TerminalView(Gtk.Box):
             return GLib.SOURCE_REMOVE
         if was_connected and not self._bar.get_visible():
             self._bar_label.set_text("Session closed.")
-            self._bar.show()
+            self._bar.set_visible(True)
         return GLib.SOURCE_REMOVE
 
     def _ui_host_key(self, hostname: str, keytype: str, fingerprint: str) -> bool:
-        """Ask whether to trust a host key we have never seen before."""
-        dlg = Gtk.MessageDialog(
-            transient_for=self._window,
-            modal=True,
-            message_type=Gtk.MessageType.WARNING,
-            text=f"The authenticity of host '{hostname}' can't be established.",
+        """Ask whether to trust a host key we have never seen before.
+
+        GTK4 has no blocking dialog.run(); the session thread is already
+        parked on its own event, so answering from the async callback is
+        enough — and it keeps the UI responsive while the prompt is up.
+        """
+        dialog = Gtk.AlertDialog()
+        dialog.set_modal(True)
+        dialog.set_message(
+            f"The authenticity of host '{hostname}' can't be established."
         )
-        dlg.format_secondary_text(
+        dialog.set_detail(
             f"{keytype} key fingerprint:\n{fingerprint}\n\n"
             "This is expected the first time you connect to this host. If you "
             "did not expect it, someone may be impersonating the host."
         )
-        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dlg.add_button("Trust and connect", Gtk.ResponseType.OK)
-        dlg.set_default_response(Gtk.ResponseType.CANCEL)
-        trusted = dlg.run() == Gtk.ResponseType.OK
-        dlg.destroy()
-        if self._session:
-            self._session.answer_host_key(trusted)
+        dialog.set_buttons(["Cancel", "Trust and connect"])
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(0)
+
+        def answered(dlg, result) -> None:
+            try:
+                trusted = dlg.choose_finish(result) == 1
+            except Exception:  # noqa: BLE001 — dialog dismissed
+                trusted = False
+            if self._session:
+                self._session.answer_host_key(trusted)
+
+        dialog.choose(self._window, None, answered)
         return GLib.SOURCE_REMOVE
 
     # ── widget events ─────────────────────────────────────────────────────
@@ -215,8 +240,8 @@ class TerminalView(Gtk.Box):
         if self._session:
             self._session.send(text)
 
-    def _on_size_allocate(self, _term, _alloc) -> None:
-        """Keep the remote PTY in sync with the widget size."""
+    def _on_grid_changed(self, *_args) -> None:
+        """Keep the remote PTY in sync with the terminal's grid size."""
         cols = self._term.get_column_count()
         rows = self._term.get_row_count()
         if (cols, rows) != self._sent_size and cols > 0 and rows > 0:
@@ -224,10 +249,10 @@ class TerminalView(Gtk.Box):
             if self._session:
                 self._session.resize(cols, rows)
 
-    def _on_bar_response(self, _bar, response: int) -> None:
-        if response == Gtk.ResponseType.OK:
-            self._term.reset(True, True)
-            self._start()
-        else:
-            self.shutdown()
-            self.on_closed(self)
+    def _on_reconnect(self, _button) -> None:
+        self._term.reset(True, True)
+        self._start()
+
+    def _on_close_clicked(self, _button) -> None:
+        self.shutdown()
+        self.on_closed(self)
