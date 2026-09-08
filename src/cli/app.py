@@ -69,6 +69,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "-n", "--name", metavar="NAME", default=None,
         help="custom window title suffix (e.g. 'Work', 'Personal')",
     )
+    # Temporary during the GTK port; removed once GTK reaches parity.
+    p_gui.add_argument(
+        "--gtk", action="store_true",
+        help="launch the GTK3 build instead of Qt (port in progress)",
+    )
 
     # ── list ───────────────────────────────────────────────────────────────
     sub.add_parser("list", help="list all saved connections")
@@ -243,7 +248,13 @@ def cli_main() -> None:
 
 
 def _launch_gui(args: argparse.Namespace) -> None:
-    """Import and run the Qt GUI (same path as `python main.py`)."""
+    """Import and run the GUI (same path as `python main.py`)."""
+    name = getattr(args, "name", None)
+
+    if getattr(args, "gtk", False):
+        from src.gtkui.app import run
+        sys.exit(run(name=name))
+
     from src.app import Application
-    app = Application(sys.argv, name=getattr(args, "name", None))
+    app = Application(sys.argv, name=name)
     sys.exit(app.exec())
