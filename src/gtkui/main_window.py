@@ -69,6 +69,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._tree.on_activated = self._open_session
         self._tree.on_selected = self._on_connection_selected
         self._tree.on_cleared = lambda: self._status.set_text("Ready.")
+        self._tree.on_edit = self._edit_connection
         self._paned.set_start_child(self._tree)
         self._paned.set_resize_start_child(False)
         self._paned.set_shrink_start_child(False)
@@ -192,11 +193,19 @@ class MainWindow(Gtk.ApplicationWindow):
             self.set_status(page.connection.connection_string())
 
     def _on_new_connection(self, _btn) -> None:
-        self._info_dialog(
-            "Connection editor not ported yet",
-            "Add connections with the CLI (sshelf add) or the Qt build for "
-            "now — the GTK dialog lands in the next phase.",
-        )
+        self._edit_connection(None)
+
+    def _edit_connection(self, conn: Connection | None) -> None:
+        """Open the connection editor for *conn*, or for a new connection."""
+        from src.gtkui.connection_dialog import ConnectionDialog
+
+        def saved(saved_conn: Connection) -> None:
+            self._tree.reload()
+            self.set_status(
+                f"Connection '{saved_conn.display_name()}' saved."
+            )
+
+        ConnectionDialog(self.db, conn, parent=self, on_saved=saved).present()
 
     def _on_quick_connect(self, entry) -> None:
         text = entry.get_text().strip()

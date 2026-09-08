@@ -90,6 +90,7 @@ class ConnectionTree(Gtk.Box):
         self.on_selected = lambda conn: None
         self.on_activated = lambda conn: None
         self.on_cleared = lambda: None
+        self.on_edit = lambda conn: None
 
         self._root = Gio.ListStore.new(_Row)
         self._tree_model = Gtk.TreeListModel.new(
@@ -305,6 +306,7 @@ class ConnectionTree(Gtk.Box):
         group = Gio.SimpleActionGroup()
         for name, handler in (
             ("connect", lambda *_: self._with_target(self.on_activated)),
+            ("edit", lambda *_: self._with_target(self.on_edit)),
             ("duplicate", lambda *_: self._with_target(self._duplicate)),
             ("delete", lambda *_: self._with_target(self._delete)),
         ):
@@ -315,6 +317,7 @@ class ConnectionTree(Gtk.Box):
 
         menu = Gio.Menu()
         menu.append("Connect", "row.connect")
+        menu.append("Edit…", "row.edit")
         menu.append("Duplicate", "row.duplicate")
         menu.append("Delete", "row.delete")
         self._menu.set_menu_model(menu)

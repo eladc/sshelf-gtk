@@ -152,7 +152,7 @@ python main.py --upgrade           # update in-place and exit
 
 ## GTK4 build (experimental)
 
-A GTK4 port is underway to replace the PyQt6 UI, starting with a working vertical slice: main window, connection tree, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the various dialogs/side panels (add/edit connection, preferences, SFTP, tunnels, snippets, key generation) are still Qt-only.
+A GTK4 port is underway to replace the PyQt6 UI. Ported so far: main window, connection tree, the add/edit connection editor, and SSH terminal tabs (rendered with [VTE](https://gitlab.gnome.org/GNOME/vte), the same terminal widget GNOME Terminal uses). RDP, VNC, and the remaining dialogs/side panels (preferences, SFTP, tunnels, snippets, key generation, ~/.ssh/config import) are still Qt-only.
 
 It's reached via a `--gtk` flag on the existing `gui` command, so both UIs currently ship side by side:
 
@@ -245,6 +245,7 @@ sshelf/
         ├── app.py                   Gtk.Application entry point
         ├── main_window.py           Header bar + connection tree + session notebook
         ├── connection_tree.py       Gtk.ColumnView + TreeListModel connection list
+        ├── connection_dialog.py     Add / edit connection editor
         └── terminal_view.py         SSH terminal tab (VTE-backed)
 ```
 
